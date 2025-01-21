@@ -103,7 +103,8 @@ class MGKBrain(sb.Brain):
 
         # One is real, zero is fake
         if optim_name == "generator":
-            target_score = torch.ones(self.batch_size, 1, device=self.device)
+            # target_score = torch.ones(self.batch_size, 1, device=self.device)
+            target_score = torch.ones(clean_spec.shape[0], 1, device=self.device)
             est_score = self.est_score(predict_spec, clean_spec)
             self.mse_metric.append(
                 ids, predict_spec, clean_spec, lens, reduction="batch"
@@ -112,7 +113,8 @@ class MGKBrain(sb.Brain):
 
         # D Learns to estimate the scores of clean speech
         elif optim_name == "D_clean":
-            target_score = torch.ones(self.batch_size, 1, device=self.device)
+            # target_score = torch.ones(self.batch_size, 1, device=self.device)
+            target_score = torch.ones(clean_spec.shape[0], 1, device=self.device)
             est_score = self.est_score(clean_spec, clean_spec)
 
         # D Learns to estimate the scores of enhanced speech
@@ -141,6 +143,7 @@ class MGKBrain(sb.Brain):
 
         if stage == sb.Stage.TRAIN:
             # Compute the cost
+            # print(optim_name, est_score.shape, target_score.shape)
             cost = self.hparams.compute_cost(est_score, target_score)
             if optim_name == "generator":
                 cost += self.hparams.mse_weight * mse_cost
