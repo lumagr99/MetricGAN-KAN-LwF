@@ -1,5 +1,5 @@
 """
-Discriminator d0
+Discriminator d1
 
 Original Author: Szu-Wei Fu 2020
 Adapted by: Yemin Mai 2024
@@ -73,6 +73,8 @@ class MetricDiscriminator(nn.Module):
         out = torch.mean(out, (2, 3))
 
         out = self.Linear1(out)
+        out = self.activation(out)
+
         out = self.Linear2(out)
 
         return out

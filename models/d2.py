@@ -1,5 +1,5 @@
 """
-Discriminator d0
+Discriminator d2
 
 Original Author: Szu-Wei Fu 2020
 Adapted by: Yemin Mai 2024
