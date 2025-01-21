@@ -1,13 +1,187 @@
 import os
+# import pickle
 import shutil
 import sys
+# from enum import Enum, auto
 
+import torch
+# import torchaudio
 from hyperpyyaml import load_hyperpyyaml
+from pesq import pesq
 
 import speechbrain as sb
+# from speechbrain.dataio.sampler import ReproducibleWeightedRandomSampler
+# from speechbrain.nnet.loss.stoi_loss import stoi_loss
+from speechbrain.processing.features import spectral_magnitude
 from speechbrain.utils.distributed import run_on_main
+from speechbrain.utils.metric_stats import MetricStats
 
-from train import *
+from train import pesq_eval, comp_eval
+
+class MGKBrain(sb.Brain):
+    def compute_forward(self, batch, stage):
+        if stage != sb.Stage.TEST:
+            raise NotImplementedError("This module is only for evaluation of discriminator.")
+
+        batch = batch.to(self.device)
+
+        noisy_wav, lens = batch.noisy_sig
+        noisy_spec = self.compute_feats(noisy_wav)
+
+        mask = self.modules.generator(noisy_spec, lengths=lens)
+        mask = mask.clamp(min=self.hparams.min_mask).squeeze(2)
+        est_spec = torch.mul(mask, noisy_spec)
+        predict_wav = self.hparams.resynth(
+            torch.expm1(est_spec), noisy_wav
+        )
+
+        return predict_wav
+        
+    def compute_objectives(self, predict_wav, batch, stage):
+        if stage != sb.Stage.TEST:
+            raise NotImplementedError("This module is only for evaluation of discriminator.")
+        
+        batch = batch.to(self.device)
+
+        noisy_wav, lens = batch.noisy_sig
+        noisy_spec = self.compute_feats(noisy_wav)
+        clean_wav, lens = batch.clean_sig
+        clean_spec = self.compute_feats(clean_wav)
+        est_spec = self.compute_feats(predict_wav)
+
+        batch_size = noisy_wav.shape[0]
+
+        nc = self.est_score(noisy_spec, clean_spec)
+        cc = self.est_score(clean_spec, clean_spec)
+        ec = self.est_score(est_spec, clean_spec)
+
+        target_nc = torch.zeros(nc.shape, device=self.device)
+        target_ec = torch.zeros(ec.shape, device=self.device)
+        target_cc = torch.ones(ec.shape, device=self.device)
+        for i in range(batch_size):
+            target_nc[i, 0] = pesq_eval(noisy_wav[i, :], clean_wav[i, :])
+            target_ec[i, 0] = pesq_eval(predict_wav[i, :], clean_wav[i, :])
+
+        # target_nc = pesq_eval(noisy_wav, clean_wav)
+        # target_ec = pesq_eval(predict_wav, clean_wav)
+
+        # self.nc_metric.append(batch.id, predictions=nc, targets=target_nc, reduction="batch")
+        # self.ec_metric.append(batch.id, predictions=ec, targets=target_ec, reduction="batch")
+        # self.cc_metric.append(batch.id, predictions=cc, targets=target_cc, reduction="batch")
+        
+        loss1 = sb.nnet.losses.mse_loss(predictions=nc, targets=target_nc, reduction="batch")
+        loss2 = sb.nnet.losses.mse_loss(predictions=ec, targets=target_ec, reduction="batch")
+        loss3 = sb.nnet.losses.mse_loss(predictions=cc, targets=target_cc, reduction="batch")
+
+        self.nc_loss += float(loss1.detach().cpu())
+        self.ec_loss += float(loss2.detach().cpu())
+        self.cc_loss += float(loss3.detach().cpu())
+
+        return loss1 + loss2 + loss3
+
+    def compute_feats(self, wavs):
+        """Feature computation pipeline"""
+        feats = self.hparams.compute_STFT(wavs)
+        feats = spectral_magnitude(feats, power=0.5)
+        feats = torch.log1p(feats)
+        return feats
+
+
+    def est_score(self, deg_spec, ref_spec):
+        """Returns score as estimated by discriminator
+
+        Arguments
+        ---------
+        deg_spec : torch.Tensor
+            The spectral features of the degraded utterance
+        ref_spec : torch.Tensor
+            The spectral features of the reference utterance
+
+        Returns
+        -------
+        est_score : torch.Tensor
+        """
+        combined_spec = torch.cat(
+            [deg_spec.unsqueeze(1), ref_spec.unsqueeze(1)], 1
+        )
+
+        return self.modules.discriminator(combined_spec)
+
+    def fit_batch(self, batch):
+        raise NotImplementedError("This module is only for evaluation of discriminator.")
+
+    def on_stage_start(self, stage, epoch=None):
+        """
+        Gets called at the beginning of each epoch
+        """
+        if stage != sb.Stage.TEST:
+            raise NotImplementedError("This module is only for evaluation of discriminator.")
+
+        # self.cc_metric = MetricStats(metric=sb.nnet.losses.mse_loss)
+        # self.nc_metric = MetricStats(metric=sb.nnet.losses.mse_loss)
+        # self.ec_metric = MetricStats(metric=sb.nnet.losses.mse_loss)
+
+        self.cc_loss = 0
+        self.nc_loss = 0
+        self.ec_loss = 0
+
+    def on_stage_end(self, stage, stage_loss, epoch=None):
+        "Called at the end of each stage to summarize progress"
+        if stage != sb.Stage.TEST:
+            raise NotImplementedError("This module is only for evaluation of discriminator.")
+
+        stats = {
+            "clean-clean": self.cc_loss,
+            "enhanced-clean": self.ec_loss,
+            "noisy-clean": self.nc_loss,
+            "total loss": self.cc_loss + self.ec_loss + self.nc_loss,
+        }
+
+        self.hparams.train_logger.log_stats(
+            {"Epoch loaded": self.hparams.epoch_counter.current},
+            test_stats=stats,
+        )
+
+# Define audio pipelines
+@sb.utils.data_pipeline.takes("noisy_wav", "clean_wav")
+@sb.utils.data_pipeline.provides("noisy_sig", "clean_sig")
+def audio_pipeline(noisy_wav, clean_wav):
+    yield sb.dataio.dataio.read_audio(noisy_wav)
+    yield sb.dataio.dataio.read_audio(clean_wav)
+
+
+# # For historical data
+# @sb.utils.data_pipeline.takes("enh_wav", "clean_wav")
+# @sb.utils.data_pipeline.provides("enh_sig", "clean_sig")
+# def enh_pipeline(enh_wav, clean_wav):
+#     yield sb.dataio.dataio.read_audio(enh_wav)
+#     yield sb.dataio.dataio.read_audio(clean_wav)
+
+
+def dataio_prep(hparams):
+    """This function prepares the datasets to be used in the brain class."""
+
+    # Define datasets
+    datasets = {}
+    data_info = {
+        "train": hparams["train_annotation"],
+        "valid": hparams["valid_annotation"],
+        "test": hparams["test_annotation"],
+    }
+    for dataset in data_info:
+        datasets[dataset] = sb.dataio.dataset.DynamicItemDataset.from_json(
+            json_path=data_info[dataset],
+            replacements={"data_root": hparams["data_folder"]},
+            dynamic_items=[audio_pipeline],
+            output_keys=["id", "noisy_sig", "clean_sig", "clean_wav"],
+        )
+
+    return datasets
+
+
+def create_folder(folder):
+    if not os.path.isdir(folder):
+        os.makedirs(folder)
 
 
 if __name__ == "__main__":
@@ -61,12 +235,10 @@ if __name__ == "__main__":
     se_brain.historical_set = {}
     se_brain.noisy_scores = {}
     se_brain.batch_size = hparams["dataloader_options"]["batch_size"]
-    se_brain.sub_stage = SubStage.GENERATOR
 
     if not os.path.isfile(hparams["historical_file"]):
         shutil.rmtree(hparams["MetricGAN_KAN_folder"])
     run_on_main(create_folder, kwargs={"folder": hparams["MetricGAN_KAN_folder"]})
-
 
     # Load best checkpoint for evaluation
     test_stats = se_brain.evaluate(

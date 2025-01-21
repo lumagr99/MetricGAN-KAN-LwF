@@ -38,7 +38,7 @@ from pysepm import composite
 def pesq_eval(pred_wav, target_wav):
     """Normalized PESQ (to 0-1)"""
     return (
-        pesq(fs=16000, ref=target_wav.numpy(), deg=pred_wav.numpy(), mode="wb")
+        pesq(fs=16000, ref=target_wav.detach().cpu().numpy(), deg=pred_wav.detach().cpu().numpy(), mode="wb")
         + 0.5
     ) / 5
 
@@ -595,10 +595,6 @@ if __name__ == "__main__":
     hparams_file, run_opts, overrides = sb.parse_arguments(sys.argv[1:])
     with open(hparams_file) as fin:
         hparams = load_hyperpyyaml(fin, overrides)
-
-    # Create the model
-    # hparams["models"]["generator"]= EnhancementGenerator()
-    # hparams["models"]["discriminator"] = MetricDiscriminator(hparams["models"]["kernel_size"], hparams["models"]["base_channels"])
 
     # Initialize ddp (useful only for multi-GPU DDP training)
     sb.utils.distributed.ddp_init_group(run_opts)

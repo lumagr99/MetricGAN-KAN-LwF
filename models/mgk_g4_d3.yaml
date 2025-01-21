@@ -1,5 +1,5 @@
 # ################################
-# Model: MetricGAN+KAN-g4-d2
+# Model: MetricGAN+KAN-g4-d3
 # Original Author: Szu-Wei Fu 2021
 # Adapted by: Yemin Mai 2024
 # ################################
@@ -11,6 +11,7 @@ N_fft: !PLACEHOLDER
 
 generator: !new:models.g4.EnhancementGenerator
 
-discriminator: !new:models.d2.MetricDiscriminator
+discriminator: !new:models.d3.MetricDiscriminator
     kernel_size: !ref <kernel_size>
     base_channels: !ref <base_channels>
+    num_layers: 2
