@@ -1,7 +1,6 @@
 # ################################
-# Model: MetricGAN+KAN-d2
+# Model: MetricGAN+
 # Original Author: Szu-Wei Fu 2021
-# Adapted by: Yemin Mai 2024
 # ################################
 
 kernel_size: (5,5)
