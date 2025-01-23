@@ -265,8 +265,9 @@ class MGKBrain(sb.Brain):
         -------
         est_score : torch.Tensor
         """
+        d = min(deg_spec.shape[1], ref_spec.shape[1])
         combined_spec = torch.cat(
-            [deg_spec.unsqueeze(1), ref_spec.unsqueeze(1)], 1
+            [deg_spec[:, :d, :].unsqueeze(1), ref_spec[:, :d, :].unsqueeze(1)], 1
         )
         return self.modules.discriminator(combined_spec)
 
