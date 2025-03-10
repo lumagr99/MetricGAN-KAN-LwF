@@ -1,5 +1,3 @@
-tok.txt
-train.sh
 __pycache__/
-results/
 *.out
+train.sh

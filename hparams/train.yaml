@@ -14,7 +14,8 @@ __set_seed: !!python/object/apply:torch.manual_seed [!ref <seed>]
 data_folder: !PLACEHOLDER # e.g, /data/member1/user_jasonfu/noisy-vctk-16k
 
 MetricGAN_KAN_folder: !ref <output_folder>/enhanced_wavs
-output_folder: !ref ./MetricGAN_KAN/d2/<seed>
+# output_folder: !ref ./MetricGAN_KAN/d2/<seed>
+output_folder: !PLACEHOLDER
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
 enhanced_folder: !ref <output_folder>/enhanced_wavs
@@ -61,8 +62,9 @@ valid_dataloader_options:
     batch_size: !ref <valid_N_batch>
 
 # Change this import to use a different model
-models: !include:../models/mgk_d2.yaml
-    N_fft: !ref <N_fft>
+# models: !include:../models/mgk_d2.yaml
+    # N_fft: !ref <N_fft>
+models: !PLACEHOLDER
 
 epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
     limit: !ref <number_of_epochs>
