@@ -375,7 +375,7 @@ class MGKBrain(sb.Brain):
         if stage == sb.Stage.TRAIN:
             if self.hparams.target_metric == "pesq":
                 self.target_metric = MetricStats(
-                    metric=pesq_eval, n_jobs=hparams["n_jobs"], batch_eval=False
+                    metric=pesq_eval, n_jobs=self.hparams["n_jobs"], batch_eval=False
                 )
             elif self.hparams.target_metric == "stoi":
                 self.target_metric = MetricStats(metric=stoi_loss)
@@ -393,11 +393,11 @@ class MGKBrain(sb.Brain):
 
         if stage != sb.Stage.TRAIN:
             self.pesq_metric = MetricStats(
-                metric=pesq_eval, n_jobs=hparams["n_jobs"], batch_eval=False
+                metric=pesq_eval, n_jobs=self.hparams["n_jobs"], batch_eval=False
             )
             self.stoi_metric = MetricStats(metric=stoi_loss)
             self.comp_metric = MetricStats(
-                metric=comp_eval, n_jobs=hparams["n_jobs"], batch_eval=False
+                metric=comp_eval, n_jobs=self.hparams["n_jobs"], batch_eval=False
             )
 
     def train_discriminator(self):
