@@ -1,3 +1,4 @@
+# Auto generated basing on train.yaml
 # #################################
 # Basic training parameters
 # To train a different model, change "!include:" statement to new model file
@@ -62,7 +63,7 @@ valid_dataloader_options:
     batch_size: !ref <valid_N_batch>
 
 # Change this import to use a different model
-models: !include:
+models: !include:../models/mgk_g4_d4.yaml
     N_fft: !ref <N_fft>
 
 epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
