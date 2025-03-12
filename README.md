@@ -28,13 +28,12 @@ https://github.com/IvanDrokin/torch-conv-kan/tree/main
 
 # Paper
 ```
-@INPROCEEDINGS{mgk,
-  author={},
-  booktitle={}, 
-  title={}, 
-  year={},
-  volume={},
-  number={},
-  pages={},
-  doi={}}
+@INPROCEEDINGS{mgk2025,
+  author={Yemin Mai and Stefan Goetze},
+  title={{MetricGAN+KAN: Kolmogorov-Arnold Networks in Metric-Driven Speech Enhancement Systems}}, 
+  booktitle={Proc.\ Int.\ Conf.\ on Acoustics, Speech, and Signal Processing (ICASSP'25)}, 
+  address={Hyderabad, India},
+  month= jun,
+  year={2025},
+}
 ```
