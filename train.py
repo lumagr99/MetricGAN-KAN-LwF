@@ -299,13 +299,13 @@ class MGKBrain(sb.Brain):
 
         # Finally, iterate train set again. Should iterate same
         # samples as before, due to ReproducibleRandomSampler
-        print("Discriminator training by current data again...")
-        self.sub_stage = SubStage.CURRENT
-        self.fit(
-            range(1),
-            self.train_set,
-            train_loader_kwargs=self.hparams.dataloader_options,
-        )
+        # print("Discriminator training by current data again...")
+        # self.sub_stage = SubStage.CURRENT
+        # self.fit(
+        #     range(1),
+        #     self.train_set,
+        #     train_loader_kwargs=self.hparams.dataloader_options,
+        # )
 
     def on_stage_end(self, stage, stage_loss, epoch=None):
         "Called at the end of each stage to summarize progress"
