@@ -23,7 +23,6 @@ from pesq import pesq
 
 import speechbrain as sb
 from speechbrain.dataio.sampler import ReproducibleWeightedRandomSampler
-from speechbrain.nnet.loss.stoi_loss import stoi_loss
 from speechbrain.processing.features import spectral_magnitude
 from speechbrain.utils.distributed import run_on_main
 from speechbrain.utils.metric_stats import MetricStats
@@ -130,11 +129,8 @@ class MGKBrain(sb.Brain):
 
         # On validation data compute scores
         if stage != sb.Stage.TRAIN:
-            cost = self.hparams.compute_si_snr(predict_wav, clean_wav, lens)
+            cost = self.hparams.compute_cost(predict_spec, clean_spec, lens)
             # Evaluate speech quality/intelligibility
-            self.stoi_metric.append(
-                batch.id, predict_wav, clean_wav, lens, reduction="batch"
-            )
             self.pesq_metric.append(
                 batch.id, predict=predict_wav, target=clean_wav, lengths=lens
             )
@@ -162,7 +158,7 @@ class MGKBrain(sb.Brain):
         return batch_id
 
     def score(self, batch_id, deg_wav, ref_wav, lens):
-        """Returns actual metric score, either pesq or stoi
+        """Returns actual metric score (pesq)
 
         Arguments
         ---------
@@ -189,20 +185,8 @@ class MGKBrain(sb.Brain):
             score = torch.tensor(
                 [[s] for s in self.target_metric.scores], device=self.device
             )
-        elif self.hparams.target_metric == "stoi":
-            self.target_metric.append(
-                batch_id,
-                deg_wav,
-                ref_wav,
-                lens,
-                reduction="batch",
-            )
-            score = torch.tensor(
-                [[-s] for s in self.target_metric.scores],
-                device=self.device,
-            )
         else:
-            raise ValueError("Expected 'pesq' or 'stoi' for target_metric")
+            raise ValueError("Expected 'pesq' for target_metric")
 
         # Clear metric scores to prepare for next batch
         self.target_metric.clear()
@@ -282,11 +266,9 @@ class MGKBrain(sb.Brain):
                 self.target_metric = MetricStats(
                     metric=pesq_eval, n_jobs=self.hparams.n_jobs, batch_eval=False
                 )
-            elif self.hparams.target_metric == "stoi":
-                self.target_metric = MetricStats(metric=stoi_loss)
             else:
                 raise NotImplementedError(
-                    "Right now we only support 'pesq' and 'stoi'"
+                    "Right now we only support 'pesq'"
                 )
 
             # Train discriminator before we start generator training
@@ -300,7 +282,6 @@ class MGKBrain(sb.Brain):
             self.pesq_metric = MetricStats(
                 metric=pesq_eval, n_jobs=self.hparams.n_jobs, batch_eval=False
             )
-            self.stoi_metric = MetricStats(metric=stoi_loss)
             self.comp_metric = MetricStats(
                 metric=comp_eval, n_jobs=self.hparams.n_jobs, batch_eval=False
             )
@@ -341,9 +322,7 @@ class MGKBrain(sb.Brain):
             comp = torch.tensor(self.comp_metric.scores)
             comp = torch.mean(comp, 0)
             stats = {
-                "SI-SNR": -stage_loss,
                 "pesq": 5 * self.pesq_metric.summarize("average") - 0.5,
-                "stoi": -self.stoi_metric.summarize("average"),
                 "csig": comp[0],
                 "cbak": comp[1],
                 "covl": comp[2],
@@ -354,9 +333,7 @@ class MGKBrain(sb.Brain):
                 comp = torch.tensor(self.comp_metric.scores)
                 comp = torch.mean(comp, 0)
                 valid_stats = {
-                    "SI-SNR": -stage_loss,
                     "pesq": 5 * self.pesq_metric.summarize("average") - 0.5,
-                    "stoi": -self.stoi_metric.summarize("average"),
                     "csig": comp[0],
                     "cbak": comp[1],
                     "covl": comp[2],
