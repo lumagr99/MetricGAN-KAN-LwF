@@ -13,8 +13,6 @@ Adapted by: Yemin Mai
 """
 
 import os
-import pickle
-import shutil
 import sys
 from enum import Enum, auto
 
@@ -52,15 +50,9 @@ class SubStage(Enum):
 
     GENERATOR = auto()
     CURRENT = auto()
-    HISTORICAL = auto()
 
 
 class MGKBrain(sb.Brain):
-    def load_history(self):
-        if os.path.isfile(self.hparams.historical_file):
-            with open(self.hparams.historical_file, "rb") as fp:  # Unpickling
-                self.historical_set = pickle.load(fp)
-
     def compute_feats(self, wavs):
         """Feature computation pipeline"""
         feats = self.hparams.compute_STFT(wavs)
@@ -72,21 +64,18 @@ class MGKBrain(sb.Brain):
         "Given an input batch computes the enhanced signal"
         batch = batch.to(self.device)
 
-        if self.sub_stage == SubStage.HISTORICAL:
-            predict_wav, lens = batch.enh_sig
-        else:
-            noisy_wav, lens = batch.noisy_sig
-            noisy_spec = self.compute_feats(noisy_wav)
+        noisy_wav, lens = batch.noisy_sig
+        noisy_spec = self.compute_feats(noisy_wav)
 
-            # mask with "signal approximation (SA)"
-            mask = self.modules.generator(noisy_spec, lengths=lens)
-            mask = mask.clamp(min=self.hparams.min_mask).squeeze(2)
-            predict_spec = torch.mul(mask, noisy_spec)
+        # mask with "signal approximation (SA)"
+        mask = self.modules.generator(noisy_spec, lengths=lens)
+        mask = mask.clamp(min=self.hparams.min_mask).squeeze(2)
+        predict_spec = torch.mul(mask, noisy_spec)
 
-            # Also return predicted wav
-            predict_wav = self.hparams.resynth(
-                torch.expm1(predict_spec), noisy_wav
-            )
+        # Also return predicted wav
+        predict_wav = self.hparams.resynth(
+            torch.expm1(predict_spec), noisy_wav
+        )
 
         return predict_wav
 
@@ -122,24 +111,12 @@ class MGKBrain(sb.Brain):
             target_score = self.score(ids, predict_wav, clean_wav, lens)
             est_score = self.est_score(predict_spec, clean_spec)
 
-            # Write enhanced wavs during discriminator training, because we
-            # compute the actual score here and we can save it
-            self.write_wavs(ids, predict_wav, clean_paths, target_score, lens)
-
-        # D Relearns to estimate the scores of previous epochs
-        elif optim_name == "D_enh" and self.sub_stage == SubStage.HISTORICAL:
-            target_score = batch.score.unsqueeze(1).float()
-            est_score = self.est_score(predict_spec, clean_spec)
-
         # D Learns to estimate the scores of noisy speech
         elif optim_name == "D_noisy":
             noisy_wav, _ = batch.noisy_sig
             noisy_spec = self.compute_feats(noisy_wav)
             target_score = self.score(ids, noisy_wav, clean_wav, lens)
             est_score = self.est_score(noisy_spec, clean_spec)
-
-            # Save scores of noisy wavs
-            self.save_noisy_scores(ids, target_score)
 
         if stage == sb.Stage.TRAIN:
             # Compute the cost
@@ -184,10 +161,6 @@ class MGKBrain(sb.Brain):
             return [f"{uid}@{self.epoch}" for uid in batch_id]
         return batch_id
 
-    def save_noisy_scores(self, batch_id, scores):
-        for i, score in zip(batch_id, scores):
-            self.noisy_scores[i] = score
-
     def score(self, batch_id, deg_wav, ref_wav, lens):
         """Returns actual metric score, either pesq or stoi
 
@@ -206,30 +179,22 @@ class MGKBrain(sb.Brain):
         -------
         score : torch.Tensor
         """
-        new_ids = [
-            i
-            for i, d in enumerate(batch_id)
-            if d not in self.historical_set and d not in self.noisy_scores
-        ]
-
-        if len(new_ids) == 0:
-            pass
-        elif self.hparams.target_metric == "pesq":
+        if self.hparams.target_metric == "pesq":
             self.target_metric.append(
-                ids=[batch_id[i] for i in new_ids],
-                predict=deg_wav[new_ids].detach(),
-                target=ref_wav[new_ids].detach(),
-                lengths=lens[new_ids],
+                ids=batch_id,
+                predict=deg_wav.detach(),
+                target=ref_wav.detach(),
+                lengths=lens,
             )
             score = torch.tensor(
                 [[s] for s in self.target_metric.scores], device=self.device
             )
         elif self.hparams.target_metric == "stoi":
             self.target_metric.append(
-                [batch_id[i] for i in new_ids],
-                deg_wav[new_ids],
-                ref_wav[new_ids],
-                lens[new_ids],
+                batch_id,
+                deg_wav,
+                ref_wav,
+                lens,
                 reduction="batch",
             )
             score = torch.tensor(
@@ -242,17 +207,7 @@ class MGKBrain(sb.Brain):
         # Clear metric scores to prepare for next batch
         self.target_metric.clear()
 
-        # Combine old scores and new
-        final_score = []
-        for i, d in enumerate(batch_id):
-            if d in self.historical_set:
-                final_score.append([self.historical_set[d]["score"]])
-            elif d in self.noisy_scores:
-                final_score.append([self.noisy_scores[d]])
-            else:
-                final_score.append([score[new_ids.index(i)]])
-
-        return torch.tensor(final_score, device=self.device)
+        return score
 
     def est_score(self, deg_spec, ref_spec):
         """Returns score as estimated by discriminator
@@ -274,45 +229,6 @@ class MGKBrain(sb.Brain):
         )
         return self.modules.discriminator(combined_spec)
 
-    def write_wavs(self, batch_id, wavs, clean_paths, scores, lens):
-        """Write wavs to files, for historical discriminator training
-
-        Arguments
-        ---------
-        batch_id : list of str
-            A list of the utterance ids for the batch
-        wavs : torch.Tensor
-            The wavs to write to files
-        clean_paths : list of str
-            The paths to the clean wavs
-        scores : torch.Tensor
-            The actual scores for the corresponding utterances
-        lens : torch.Tensor
-            The relative lengths of each utterance
-        """
-        lens = lens * wavs.shape[1]
-        record = {}
-        for i, (name, pred_wav, clean_path, length) in enumerate(
-            zip(batch_id, wavs, clean_paths, lens)
-        ):
-            path = os.path.join(self.hparams.MetricGAN_KAN_folder, name + ".wav")
-            data = torch.unsqueeze(pred_wav[: int(length)].cpu(), 0)
-            torchaudio.save(path, data, self.hparams.Sample_rate)
-
-            # Make record of path and score for historical training
-            score = float(scores[i][0])
-            record[name] = {
-                "enh_wav": path,
-                "score": score,
-                "clean_wav": clean_path,
-            }
-
-        # Update records for historical training
-        self.historical_set.update(record)
-
-        with open(self.hparams.historical_file, "wb") as fp:  # Pickling
-            pickle.dump(self.historical_set, fp)
-
     def fit_batch(self, batch):
         "Compute gradients and update either D or G based on sub-stage."
         predictions = self.compute_forward(batch, sb.Stage.TRAIN)
@@ -329,17 +245,6 @@ class MGKBrain(sb.Brain):
                 )
                 self.d_optimizer.step()
                 loss_tracker += loss.detach() / 3
-        elif self.sub_stage == SubStage.HISTORICAL:
-            loss = self.compute_objectives(
-                predictions, batch, sb.Stage.TRAIN, "D_enh"
-            )
-            self.d_optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(
-                self.modules.parameters(), self.max_grad_norm
-            )
-            self.d_optimizer.step()
-            loss_tracker += loss.detach()
         elif self.sub_stage == SubStage.GENERATOR:
             for name, param in self.modules.generator.named_parameters():
                 if "Learnable_sigmoid" in name:
@@ -401,7 +306,7 @@ class MGKBrain(sb.Brain):
             )
 
     def train_discriminator(self):
-        """A total of 3 data passes to update discriminator."""
+        """A total of 2 data passes to update discriminator."""
         # First, iterate train subset w/ updates for clean, enh, noisy
         print("Discriminator training by current data...")
         self.sub_stage = SubStage.CURRENT
@@ -410,16 +315,6 @@ class MGKBrain(sb.Brain):
             self.train_set,
             train_loader_kwargs=self.hparams.dataloader_options,
         )
-
-        # Next, iterate historical subset w/ updates for enh
-        if self.historical_set:
-            print("Discriminator training by historical data...")
-            self.sub_stage = SubStage.HISTORICAL
-            self.fit(
-                range(1),
-                self.historical_set,
-                train_loader_kwargs=self.hparams.dataloader_options,
-            )
 
         # Finally, iterate train set again. Should iterate same
         # samples as before, due to ReproducibleRandomSampler
@@ -487,23 +382,7 @@ class MGKBrain(sb.Brain):
     ):
         "Override dataloader to insert custom sampler/dataset"
         if stage == sb.Stage.TRAIN:
-            # Create a new dataset each time, this set grows
-            if self.sub_stage == SubStage.HISTORICAL:
-                dataset = sb.dataio.dataset.DynamicItemDataset(
-                    data=dataset,
-                    dynamic_items=[enh_pipeline],
-                    output_keys=[
-                        "id",
-                        "enh_sig",
-                        "clean_sig",
-                        "score",
-                        "clean_wav",
-                    ],
-                )
-                samples = round(len(dataset) * self.hparams.history_portion)
-                samples = max(samples, 1)  # Ensure there's at least one sample
-            else:
-                samples = self.hparams.number_of_samples
+            samples = self.hparams.number_of_samples
 
             # This sampler should give the same samples for D and G
             epoch = self.hparams.epoch_counter.current
@@ -556,14 +435,6 @@ class MGKBrain(sb.Brain):
 @sb.utils.data_pipeline.provides("noisy_sig", "clean_sig")
 def audio_pipeline(noisy_wav, clean_wav):
     yield sb.dataio.dataio.read_audio(noisy_wav)
-    yield sb.dataio.dataio.read_audio(clean_wav)
-
-
-# For historical data
-@sb.utils.data_pipeline.takes("enh_wav", "clean_wav")
-@sb.utils.data_pipeline.provides("enh_sig", "clean_sig")
-def enh_pipeline(enh_wav, clean_wav):
-    yield sb.dataio.dataio.read_audio(enh_wav)
     yield sb.dataio.dataio.read_audio(clean_wav)
 
 
@@ -642,16 +513,8 @@ if __name__ == "__main__":
         checkpointer=hparams["checkpointer"],
     )
     se_brain.train_set = datasets["train"]
-    se_brain.historical_set = {}
-    se_brain.noisy_scores = {}
     se_brain.batch_size = hparams["dataloader_options"]["batch_size"]
     se_brain.sub_stage = SubStage.GENERATOR
-
-    if not os.path.isfile(hparams["historical_file"]):
-        shutil.rmtree(hparams["MetricGAN_KAN_folder"])
-    run_on_main(create_folder, kwargs={"folder": hparams["MetricGAN_KAN_folder"]})
-
-    se_brain.load_history()
     # Load latest checkpoint to resume training
     # try:
     se_brain.fit(
