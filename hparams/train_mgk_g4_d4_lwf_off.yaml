@@ -1,3 +1,4 @@
+# Auto generated basing on train.yaml
 # #################################
 # Basic training parameters
 # To train a different model, change "!include:" statement to new model file
@@ -45,14 +46,14 @@ target_metric: pesq
 # n_jobs: 1 # Jobs for metric eval (increase to speed up)
 n_jobs: 4
 # Training Parameters
-number_of_epochs: 400
+number_of_epochs: 120
 number_of_samples: 50
 min_mask: 0.05
 train_N_batch: 1
 valid_N_batch: 20
 history_portion: 0.2
 # history_portion: 0
-PD_LAMBDA: 0.5
+PD_LAMBDA: 0
 PD_ANCHOR: 50
 G_lr: 0.0005
 D_lr: 0.0005
@@ -64,7 +65,7 @@ valid_dataloader_options:
     batch_size: !ref <valid_N_batch>
 
 # Change this import to use a different model
-models: !include:
+models: !include:../models/mgk_g4_d4.yaml
     N_fft: !ref <N_fft>
 
 epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
