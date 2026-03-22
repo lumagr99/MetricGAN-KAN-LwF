@@ -56,6 +56,8 @@ history_portion: 0.2
 G_lr: 0.0005
 D_lr: 0.0005
 mse_weight: 0
+pd_lambda: 0.5
+pd_anchor_interval: 50
 
 dataloader_options:
     batch_size: !ref <train_N_batch>
