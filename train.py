@@ -443,6 +443,24 @@ class MGKBrain(sb.Brain):
             print("Avg G loss: %.3f" % torch.mean(g_loss))
             print("Avg D loss: %.3f" % torch.mean(d_loss))
         else:
+            has_metric_scores = (
+                len(self.pesq_metric.scores) > 0
+                and len(self.stoi_metric.scores) > 0
+                and len(self.comp_metric.scores) > 0
+            )
+            if not has_metric_scores:
+                is_first_valid_round = stage == sb.Stage.VALID and epoch == 1
+                if is_first_valid_round:
+                    print(
+                        "Warning: no validation metric scores collected in epoch 1; "
+                        "skipping this validation round once."
+                    )
+                    return
+                raise RuntimeError(
+                    "No metric scores were collected during evaluation stage "
+                    f"(stage={stage}, epoch={epoch})."
+                )
+
             comp = torch.tensor(self.comp_metric.scores)
             comp = torch.mean(comp, 0)
             stats = {
@@ -456,17 +474,7 @@ class MGKBrain(sb.Brain):
 
         if stage == sb.Stage.VALID:
             if self.hparams.use_tensorboard:
-                comp = torch.tensor(self.comp_metric.scores)
-                comp = torch.mean(comp, 0)
-                valid_stats = {
-                    "SI-SNR": -stage_loss,
-                    "pesq": 5 * self.pesq_metric.summarize("average") - 0.5,
-                    "stoi": -self.stoi_metric.summarize("average"),
-                    "csig": comp[0],
-                    "cbak": comp[1],
-                    "covl": comp[2],
-                }
-                self.hparams.tensorboard_train_logger.log_stats(valid_stats)
+                self.hparams.tensorboard_train_logger.log_stats(stats)
             self.hparams.train_logger.log_stats(
                 {"Epoch": epoch},
                 train_stats={"loss": self.train_loss},
