@@ -1,0 +1,6 @@
+!include:../train.yaml
+
+number_of_epochs: 120
+output_folder: !ref ./results/ablations_core/baseline_lwf_off/<seed>
+
+lwf_enabled: False

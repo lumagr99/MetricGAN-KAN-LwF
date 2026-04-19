@@ -1,0 +1,9 @@
+!include:../train.yaml
+
+number_of_epochs: 120
+output_folder: !ref ./results/ablations_core/baseline_lambda0/<seed>
+
+lwf_enabled: True
+lambda_lwf: 0.0
+lambda_lwf_decay: 1.0
+n_reset: 10
