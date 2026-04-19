@@ -14,7 +14,7 @@ __set_seed: !apply:speechbrain.utils.seed_everything [!ref <seed>]
 data_folder: !PLACEHOLDER # e.g, /data/member1/user_jasonfu/noisy-vctk-16k
 
 MetricGAN_folder: !ref <output_folder>/enhanced_wavs
-output_folder: !ref ./results/MetricGAN/<seed>
+output_folder: !ref ./results/ablations_core/fixed_l1_n10/<seed>
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
 enhanced_folder: !ref <output_folder>/enhanced_wavs
@@ -43,7 +43,7 @@ skip_prep: False
 target_metric: pesq
 n_jobs: 1 # Jobs for metric eval (increase to speed up)
 # Training Parameters
-number_of_epochs: 750
+number_of_epochs: 120
 number_of_samples: 100
 min_mask: 0.05
 train_N_batch: 1
@@ -61,7 +61,7 @@ lambda_lwf_decay: 1.0
 # If set, these take precedence over lambda_lwf/lambda_lwf_decay.
 # lambda_lwf_start: 0.0
 # lambda_lwf_end: 1.0
-n_reset: 1
+n_reset: 10
 
 dataloader_options:
     batch_size: !ref <train_N_batch>
@@ -119,11 +119,3 @@ train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
 # torch.Tensorboard logger (optional)
 tensorboard_train_logger: !new:speechbrain.utils.train_logger.TensorboardLogger
     save_dir: !ref <tensorboard_logs>
-
-# Ablation overrides
-number_of_epochs: 120
-output_folder: !ref ./results/ablations_core/fixed_l1_n10/<seed>
-lwf_enabled: True
-lambda_lwf: 1
-lambda_lwf_decay: 1.0
-n_reset: 10
