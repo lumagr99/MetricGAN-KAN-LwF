@@ -1,4 +1,4 @@
-!include:../train.yaml
+<<: !include:../train.yaml
 
 number_of_epochs: 120
 output_folder: !ref ./results/ablations_core/fixed_l0p25_n10/<seed>
