@@ -14,7 +14,7 @@ import os
 import pickle
 import shutil
 import sys
-from copy import deepcopy
+from collections import OrderedDict
 from enum import Enum, auto
 
 import torch
@@ -91,18 +91,39 @@ class MetricGanBrain(sb.Brain):
         decay_scale = 1.0 - (1.0 - decay_factor) * progress
         return max(0.0, base_lambda * decay_scale)
 
-    def refresh_lwf_snapshots(self):
-        """Copies current G/D into frozen reference models for LwF."""
-        self.old_generator = deepcopy(self.modules.generator).to(self.device)
-        self.old_discriminator = deepcopy(self.modules.discriminator).to(
-            self.device
-        )
-        self.old_generator.eval()
-        self.old_discriminator.eval()
+    def snapshot_module_state(self, module):
+        """Stores a frozen copy of module params/buffers (Li & Hoiem, 2017)."""
+        return {
+            "params": OrderedDict(
+                (name, param.detach().clone())
+                for name, param in module.named_parameters()
+            ),
+            "buffers": OrderedDict(
+                (name, buf.detach().clone()) for name, buf in module.named_buffers()
+            ),
+        }
 
-        for module in [self.old_generator, self.old_discriminator]:
-            for param in module.parameters():
-                param.requires_grad = False
+    def functional_call_module(self, module, params, buffers, *args, **kwargs):
+        """Runs a module with externally provided params/buffers."""
+        try:
+            from torch.func import functional_call
+
+            return functional_call(module, (params, buffers), args, kwargs)
+        except (ImportError, TypeError):
+            from torch.nn.utils.stateless import functional_call
+
+            merged_state = OrderedDict(params)
+            merged_state.update(buffers)
+            return functional_call(module, merged_state, args, kwargs)
+
+    def refresh_lwf_snapshots(self):
+        """Refreshes frozen G/D snapshots without deepcopy for weight_norm safety."""
+        self.old_generator_state = self.snapshot_module_state(
+            self.modules.generator
+        )
+        self.old_discriminator_state = self.snapshot_module_state(
+            self.modules.discriminator
+        )
 
     def maybe_refresh_lwf_snapshots(self, epoch):
         """Refreshes frozen snapshots every n_reset epochs (Li & Hoiem, 2017)."""
@@ -110,10 +131,10 @@ class MetricGanBrain(sb.Brain):
             return
 
         if (
-            not hasattr(self, "old_generator")
-            or not hasattr(self, "old_discriminator")
-            or self.old_generator is None
-            or self.old_discriminator is None
+            not hasattr(self, "old_generator_state")
+            or not hasattr(self, "old_discriminator_state")
+            or self.old_generator_state is None
+            or self.old_discriminator_state is None
         ):
             self.refresh_lwf_snapshots()
             return
@@ -126,10 +147,30 @@ class MetricGanBrain(sb.Brain):
         """Runs a no-grad forward pass with frozen old generator."""
         noisy_wav, lens = batch.noisy_sig
         noisy_spec = self.compute_feats(noisy_wav)
-        mask = self.old_generator(noisy_spec, lengths=lens)
+        snapshot = self.old_generator_state
+        mask = self.functional_call_module(
+            self.modules.generator,
+            snapshot["params"],
+            snapshot["buffers"],
+            noisy_spec,
+            lengths=lens,
+        )
         mask = mask.clamp(min=self.hparams.min_mask).squeeze(2)
         predict_spec = torch.mul(mask, noisy_spec)
         return self.hparams.resynth(torch.expm1(predict_spec), noisy_wav)
+
+    def old_discriminator_score(self, deg_spec, ref_spec):
+        """Runs frozen discriminator snapshot on concatenated specs."""
+        snapshot = self.old_discriminator_state
+        combined_spec = torch.cat(
+            [deg_spec.unsqueeze(1), ref_spec.unsqueeze(1)], 1
+        )
+        return self.functional_call_module(
+            self.modules.discriminator,
+            snapshot["params"],
+            snapshot["buffers"],
+            combined_spec,
+        )
 
     def kd_loss(self, student_score, teacher_score, temperature=2.0):
         """KL distillation on softened discriminator scores (Hinton et al., 2014)."""
@@ -238,7 +279,7 @@ class MetricGanBrain(sb.Brain):
                 cost += self.hparams.mse_weight * mse_cost
 
                 # LwF (Li & Hoiem, 2017): keep current generator close to old snapshot.
-                if lwf_lambda > 0.0 and hasattr(self, "old_generator"):
+                if lwf_lambda > 0.0 and hasattr(self, "old_generator_state"):
                     with torch.no_grad():
                         old_predict_wav = self.old_generator_forward(batch).detach()
                     cost += lwf_lambda * F.mse_loss(predict_wav, old_predict_wav)
@@ -249,11 +290,11 @@ class MetricGanBrain(sb.Brain):
                 if (
                     lwf_lambda > 0.0
                     and kd_deg_spec is not None
-                    and hasattr(self, "old_discriminator")
+                    and hasattr(self, "old_discriminator_state")
                 ):
                     with torch.no_grad():
-                        old_est_score = self.est_score(
-                            kd_deg_spec, clean_spec, self.old_discriminator
+                        old_est_score = self.old_discriminator_score(
+                            kd_deg_spec, clean_spec
                         ).detach()
                     cost += lwf_lambda * self.kd_loss(
                         est_score, old_est_score, temperature=2.0
@@ -743,8 +784,8 @@ if __name__ == "__main__":
     se_brain.noisy_scores = {}
     se_brain.batch_size = hparams["dataloader_options"]["batch_size"]
     se_brain.sub_stage = SubStage.GENERATOR
-    se_brain.old_generator = None
-    se_brain.old_discriminator = None
+    se_brain.old_generator_state = None
+    se_brain.old_discriminator_state = None
 
     if not os.path.isfile(hparams["historical_file"]):
         shutil.rmtree(hparams["MetricGAN_folder"])
