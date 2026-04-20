@@ -1,6 +1,8 @@
 from models.generator import TSCNet
 from models import discriminator
 import os
+import glob
+import re
 from data import dataloader
 import torch.nn.functional as F
 import torch
@@ -43,6 +45,22 @@ def ddp_setup(rank, world_size):
 
 
 class Trainer:
+        def _find_latest_checkpoint(self):
+            pattern = os.path.join(args.save_model_dir, "CMGAN_epoch_*")
+            ckpts = glob.glob(pattern)
+            latest_epoch = -1
+            latest_path = None
+            for ckpt in ckpts:
+                name = os.path.basename(ckpt)
+                match = re.match(r"CMGAN_epoch_(\d+)_", name)
+                if match is None:
+                    continue
+                epoch = int(match.group(1))
+                if epoch > latest_epoch:
+                    latest_epoch = epoch
+                    latest_path = ckpt
+            return latest_epoch, latest_path
+
     def __init__(self, train_ds, test_ds, gpu_id: int):
         self.n_fft = 400
         self.hop = 100
@@ -209,7 +227,7 @@ class Trainer:
         return loss.item(), discrim_loss_metric.item()
 
     @torch.no_grad()
-    def test_step(self, batch):
+    def test_step(self, batch, compute_pesq=False):
 
         clean = batch[0].to(self.gpu_id)
         noisy = batch[1].to(self.gpu_id)
@@ -224,8 +242,10 @@ class Trainer:
 
         loss = self.calculate_generator_loss(generator_outputs)
 
-        # Compute PESQ during testing/evaluation
-        discrim_loss_metric = self.calculate_discriminator_loss(generator_outputs, compute_pesq=True)
+        # Compute PESQ only when requested (we do it once per epoch in test())
+        discrim_loss_metric = self.calculate_discriminator_loss(
+            generator_outputs, compute_pesq=compute_pesq
+        )
         if discrim_loss_metric is None:
             discrim_loss_metric = torch.tensor([0.0])
 
@@ -238,7 +258,8 @@ class Trainer:
         disc_loss_total = 0.0
         for idx, batch in enumerate(self.test_ds):
             step = idx + 1
-            loss, disc_loss = self.test_step(batch)
+            # PESQ is expensive; compute only on the first validation batch.
+            loss, disc_loss = self.test_step(batch, compute_pesq=(idx == 0))
             gen_loss_total += loss
             disc_loss_total += disc_loss
         gen_loss_avg = gen_loss_total / step
@@ -256,7 +277,25 @@ class Trainer:
         scheduler_D = torch.optim.lr_scheduler.StepLR(
             self.optimizer_disc, step_size=args.decay_epoch, gamma=0.5
         )
-        for epoch in range(args.epochs):
+        start_epoch = 0
+        latest_epoch, latest_path = self._find_latest_checkpoint()
+        if latest_path is not None:
+            state_dict = torch.load(latest_path, map_location=f"cuda:{self.gpu_id}")
+            self.model.module.load_state_dict(state_dict)
+            start_epoch = latest_epoch + 1
+            if self.gpu_id == 0:
+                logging.info("Resuming from %s (next epoch: %d)", latest_path, start_epoch)
+
+        if start_epoch >= args.epochs:
+            if self.gpu_id == 0:
+                logging.info(
+                    "No training needed: start_epoch (%d) >= epochs (%d)",
+                    start_epoch,
+                    args.epochs,
+                )
+            return
+
+        for epoch in range(start_epoch, args.epochs):
             self.model.train()
             self.discriminator.train()
             for idx, batch in enumerate(self.train_ds):

@@ -52,7 +52,6 @@ class DemandDataset(torch.utils.data.Dataset):
 
 
 def load_data(ds_dir, batch_size, n_cpu, cut_len):
-    torchaudio.set_audio_backend("sox_io")  # in linux
     train_dir = os.path.join(ds_dir, "train")
     test_dir = os.path.join(ds_dir, "test")
 
