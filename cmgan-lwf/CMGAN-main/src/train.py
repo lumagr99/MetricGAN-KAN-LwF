@@ -150,12 +150,16 @@ class Trainer:
 
         return loss
 
-    def calculate_discriminator_loss(self, generator_outputs):
+    def calculate_discriminator_loss(self, generator_outputs, compute_pesq=False):
 
         length = generator_outputs["est_audio"].size(-1)
-        est_audio_list = list(generator_outputs["est_audio"].detach().cpu().numpy())
-        clean_audio_list = list(generator_outputs["clean"].cpu().numpy()[:, :length])
-        pesq_score = discriminator.batch_pesq(clean_audio_list, est_audio_list)
+        
+        # Only compute PESQ when explicitly requested (e.g., at epoch end)
+        pesq_score = None
+        if compute_pesq:
+            est_audio_list = list(generator_outputs["est_audio"].detach().cpu().numpy())
+            clean_audio_list = list(generator_outputs["clean"].cpu().numpy()[:, :length])
+            pesq_score = discriminator.batch_pesq(clean_audio_list, est_audio_list)
 
         # The calculation of PESQ can be None due to silent part
         if pesq_score is not None:
@@ -192,8 +196,8 @@ class Trainer:
         loss.backward()
         self.optimizer.step()
 
-        # Train Discriminator
-        discrim_loss_metric = self.calculate_discriminator_loss(generator_outputs)
+        # Train Discriminator (without PESQ computation during training)
+        discrim_loss_metric = self.calculate_discriminator_loss(generator_outputs, compute_pesq=False)
 
         if discrim_loss_metric is not None:
             self.optimizer_disc.zero_grad()
@@ -220,7 +224,8 @@ class Trainer:
 
         loss = self.calculate_generator_loss(generator_outputs)
 
-        discrim_loss_metric = self.calculate_discriminator_loss(generator_outputs)
+        # Compute PESQ during testing/evaluation
+        discrim_loss_metric = self.calculate_discriminator_loss(generator_outputs, compute_pesq=True)
         if discrim_loss_metric is None:
             discrim_loss_metric = torch.tensor([0.0])
 
