@@ -1,3 +1,4 @@
 __pycache__/
 *.out
 train.sh
+cmgan-george/models/facebook/HuBERT/hubert_base_ls960.pt
