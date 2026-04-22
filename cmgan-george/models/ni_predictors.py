@@ -1,12 +1,11 @@
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
-try: #look in two places for the HuBERT wrapper
-    from models.huBERT_wrapper import HuBERTWrapper_full,HuBERTWrapper_extractor,HuBERTWrapper_full_all
-    #from models.wav2vec2_wrapper import Wav2Vec2Wrapper_no_helper,Wav2Vec2Wrapper_encoder_only
-except:
-    from huBERT_wrapper import HuBERTWrapper_full,HuBERTWrapper_extractor,HuBERTWrapper_full_all
-    #from wav2vec2_wrapper import Wav2Vec2Wrapper_no_helper,Wav2Vec2Wrapper_encoder_only
+from models.huBERT_wrapper import (
+    HuBERTWrapper_full,
+    HuBERTWrapper_extractor,
+    HuBERTWrapper_full_all,
+)
 from speechbrain.processing.features import spectral_magnitude,STFT
 
 class PoolAttFF(torch.nn.Module):
