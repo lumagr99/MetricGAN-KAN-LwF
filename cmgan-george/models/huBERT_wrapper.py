@@ -1,7 +1,6 @@
 import os
 
 from torch import Tensor, nn
-import fairseq
 import torch
 import torch.nn.functional as F
 import speechbrain as sb
@@ -25,6 +24,19 @@ def _resolve_hubert_ckpt_path():
     )
 
 
+def _load_fairseq():
+    try:
+        import fairseq  # noqa: PLC0415
+    except Exception as exc:
+        raise RuntimeError(
+            "fairseq could not be imported in the current Python environment. "
+            "Use the project environment from chime.yaml or a Python 3.8 setup "
+            "that matches the pinned fairseq version."
+        ) from exc
+
+    return fairseq
+
+
 #import matplotlib.pyplot as plt
 
 class HuBERTWrapper_extractor(nn.Module):
@@ -32,6 +44,7 @@ class HuBERTWrapper_extractor(nn.Module):
         super().__init__(*args, **kwargs)
 
         ckpt_path = _resolve_hubert_ckpt_path()
+        fairseq = _load_fairseq()
         models, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task([ckpt_path])
         self.model = models[0].feature_extractor
         self.model.requires_grad_(False)
@@ -45,6 +58,7 @@ class HuBERTWrapper_extractor_all(nn.Module):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         ckpt_path = _resolve_hubert_ckpt_path()
+        fairseq = _load_fairseq()
         models, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task([ckpt_path])
         self.model = models[0].feature_extractor
         self.model._requires_grad=False
@@ -76,6 +90,7 @@ class HuBERTWrapper_full(nn.Module):
         super().__init__(*args, **kwargs)
 
         ckpt_path = _resolve_hubert_ckpt_path()
+        fairseq = _load_fairseq()
 
         models = fairseq.checkpoint_utils.load_model_ensemble([ckpt_path])
         full_model = models[0][0]
@@ -102,6 +117,7 @@ class HuBERTWrapper_full_all(nn.Module):
         super().__init__(*args, **kwargs)
 
         ckpt_path = _resolve_hubert_ckpt_path()
+        fairseq = _load_fairseq()
 
         models = fairseq.checkpoint_utils.load_model_ensemble([ckpt_path])
         full_model = models[0][0]
