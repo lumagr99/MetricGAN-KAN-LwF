@@ -1,3 +1,4 @@
+import argparse
 from torch import Tensor, nn
 import fairseq
 import torch
@@ -6,12 +7,32 @@ import speechbrain as sb
 
 #import matplotlib.pyplot as plt
 
+
+def _load_fairseq_hubert_checkpoint(ckpt_path, with_task=True):
+    """Load fairseq checkpoints compatibly with PyTorch 2.6+ defaults."""
+    if hasattr(torch.serialization, "add_safe_globals"):
+        torch.serialization.add_safe_globals([argparse.Namespace])
+
+    original_torch_load = torch.load
+
+    def _compat_torch_load(*args, **kwargs):
+        kwargs.setdefault("weights_only", False)
+        return original_torch_load(*args, **kwargs)
+
+    torch.load = _compat_torch_load
+    try:
+        if with_task:
+            return fairseq.checkpoint_utils.load_model_ensemble_and_task([ckpt_path])
+        return fairseq.checkpoint_utils.load_model_ensemble([ckpt_path])
+    finally:
+        torch.load = original_torch_load
+
 class HuBERTWrapper_extractor(nn.Module):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         ckpt_path = "models/facebook/HuBERT/hubert_base_ls960.pt"
-        models, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task([ckpt_path])
+        models, cfg, task = _load_fairseq_hubert_checkpoint(ckpt_path, with_task=True)
         self.model = models[0].feature_extractor
         self.model.requires_grad_(False)
         
@@ -24,7 +45,7 @@ class HuBERTWrapper_extractor_all(nn.Module):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         ckpt_path = "models/facebook/HuBERT/hubert_base_ls960.pt"
-        models, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task([ckpt_path])
+        models, cfg, task = _load_fairseq_hubert_checkpoint(ckpt_path, with_task=True)
         self.model = models[0].feature_extractor
         self.model._requires_grad=False
 
@@ -56,7 +77,7 @@ class HuBERTWrapper_full(nn.Module):
 
         ckpt_path = "models/facebook/HuBERT/hubert_base_ls960.pt"
 
-        models = fairseq.checkpoint_utils.load_model_ensemble([ckpt_path])
+        models = _load_fairseq_hubert_checkpoint(ckpt_path, with_task=False)
         full_model = models[0][0]
         full_model.features_only =True
         self.model = full_model
@@ -82,7 +103,7 @@ class HuBERTWrapper_full_all(nn.Module):
 
         ckpt_path = "models/facebook/HuBERT/hubert_base_ls960.pt"
 
-        models = fairseq.checkpoint_utils.load_model_ensemble([ckpt_path])
+        models = _load_fairseq_hubert_checkpoint(ckpt_path, with_task=False)
         full_model = models[0][0]
         full_model.features_only =True
         self.model = full_model
