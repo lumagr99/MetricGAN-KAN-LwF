@@ -113,7 +113,11 @@ class Dataset(torch.utils.data.Dataset, abstract_dataset.Dataset):
         if os.path.lexists(path):
             return path
         else:
-            raise IOError('Dataset path: {} not found!'.format(path))
+            raise IOError(
+                'Dataset path: {} not found! '
+                'Set LIBRI3MIX_ROOT_PATH directly or set CHIME2023_DATA_ROOT '
+                'to the parent data directory.'.format(path)
+            )
 
     def wavread(self, path):
         waveform, _ = torchaudio.load(path)
