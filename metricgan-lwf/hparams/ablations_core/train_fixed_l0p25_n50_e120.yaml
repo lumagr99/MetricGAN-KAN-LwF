@@ -43,7 +43,7 @@ skip_prep: False
 target_metric: pesq
 n_jobs: 1 # Jobs for metric eval (increase to speed up)
 # Training Parameters
-number_of_epochs: 120
+number_of_epochs: 220
 number_of_samples: 100
 min_mask: 0.05
 train_N_batch: 1
