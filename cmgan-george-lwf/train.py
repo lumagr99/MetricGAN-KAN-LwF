@@ -1278,8 +1278,6 @@ if __name__ == "__main__":
 
     # Load hyperparameters file with command-line overrides
     hparams_file, run_opts, overrides = sb.parse_arguments(sys.argv[1:])
-    if "tqdm_colored_bar" in run_opts:
-        run_opts["tqdm_colored_bar"] = True
     print(hparams_file, "run_opts\n",run_opts,"overrides:\n", overrides)
     if "local-rank" in overrides:
         import re
