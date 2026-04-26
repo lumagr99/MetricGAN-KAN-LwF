@@ -1259,6 +1259,16 @@ def configure_warning_filters():
         message=r"torio\.io\._streaming_media_decoder\.StreamingMediaDecoder has been deprecated",
         category=UserWarning,
     )
+    warnings.filterwarnings(
+        "ignore",
+        message=r"In 2\.9, this function's implementation will be changed to use torchaudio\.save_with_torchcodec",
+        category=UserWarning,
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=r"torio\.io\._streaming_media_encoder\.StreamingMediaEncoder has been deprecated",
+        category=UserWarning,
+    )
 
 
 # Recipe begins!
@@ -1268,6 +1278,8 @@ if __name__ == "__main__":
 
     # Load hyperparameters file with command-line overrides
     hparams_file, run_opts, overrides = sb.parse_arguments(sys.argv[1:])
+    if "tqdm_colored_bar" in run_opts:
+        run_opts["tqdm_colored_bar"] = True
     print(hparams_file, "run_opts\n",run_opts,"overrides:\n", overrides)
     if "local-rank" in overrides:
         import re
