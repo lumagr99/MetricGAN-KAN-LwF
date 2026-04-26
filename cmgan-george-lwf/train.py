@@ -13,6 +13,7 @@ MultiMetricConformerGAN+/+ additions by George Close 2023
 import os
 import sys
 import shutil
+import warnings
 import torch
 import torchaudio
 import speechbrain as sb
@@ -228,20 +229,23 @@ class MetricGanBrain(sb.Brain):
 
     def old_generator_forward(self, batch):
         """Runs the generator snapshot on the current batch."""
-        batch = batch.to(self.device)
-        noisy_wav, lens = batch.noisy_sig
-        noisy_spec = self.compute_feats(noisy_wav)
+        wav_id, noisy_wavs, clean_wavs, lens = self.format_batch(batch)
+
+        # Match the current generator preprocessing to keep LwF targets aligned.
+        noisy_wavs_std = noisy_wavs.std(-1, keepdim=True)
+        noisy_wavs_mean = noisy_wavs.mean(-1, keepdim=True)
+        noisy_wavs = (noisy_wavs - noisy_wavs_mean) / (noisy_wavs_std + 1e-9)
+
+        noisy_spec, noisy_real, noisy_imag = self.compute_feats_real_imag(noisy_wavs)
         snapshot = self.old_generator_state
-        mask = self.functional_call_module(
+        predict_real, predict_imag = self.functional_call_module(
             self.modules.generator,
             snapshot["params"],
             snapshot["buffers"],
             noisy_spec,
-            lengths=lens,
         )
-        mask = mask.clamp(min=self.hparams.min_mask).squeeze(2)
-        predict_spec = torch.mul(mask, noisy_spec)
-        return self.hparams.resynth(torch.expm1(predict_spec), noisy_wav)
+        predict_spec_uncompress = power_uncompress(predict_real, predict_imag).squeeze(1)
+        return self.hparams.compute_ISTFT(predict_spec_uncompress)
 
     def old_degenerator_forward(self, batch):
         """Runs the degenerator snapshot on the current batch."""
@@ -1243,8 +1247,24 @@ def create_folder(folder):
         os.makedirs(folder)
 
 
+def configure_warning_filters():
+    """Suppress noisy torchaudio deprecation warnings during training."""
+    warnings.filterwarnings(
+        "ignore",
+        message=r"In 2\.9, this function's implementation will be changed to use torchaudio\.load_with_torchcodec",
+        category=UserWarning,
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=r"torio\.io\._streaming_media_decoder\.StreamingMediaDecoder has been deprecated",
+        category=UserWarning,
+    )
+
+
 # Recipe begins!
 if __name__ == "__main__":
+
+    configure_warning_filters()
 
     # Load hyperparameters file with command-line overrides
     hparams_file, run_opts, overrides = sb.parse_arguments(sys.argv[1:])
