@@ -1,0 +1,5 @@
+<<: !include:train_fixed_l0p5_n50_e120.yaml
+
+output_folder: !ref ./results/ablations_core/fixed_l0p5_n50_h0/<seed>
+history_portion: 0.0
+history_buffer: 0

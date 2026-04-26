@@ -1,0 +1,6 @@
+<<: !include:train_mgk_g4_d4.yaml
+
+output_folder: !ref ./results/results/hparams/train_mgk_g4_d4-l025_h0
+pd_lambda: 0.25
+history_portion: 0.0
+history_buffer: 0
